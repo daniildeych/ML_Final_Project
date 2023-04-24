@@ -1,0 +1,322 @@
+---
+title: "Data Mining and Machine Learning Final Project"
+author: "Daniil Deych, Alex Mykietyn, Cameron Wheatley"
+date: "`r Sys.Date()`"
+output: pdf_document:
+          keep_md: TRUE
+---
+
+# What team-relative regular season statistics can tell us about NHL playoff team performance?
+
+## I. Introduction and Background
+
+As team and player statistics have garnered a more prominent role in sports, attempts at predicting performance has become a go to area for Las Vegas bookies and sports fans in general. Getting into any debate about how "good" your team will be will undoubtedly incur some version of statistical performance. Be it your gut or a fancy statistical model, those numbers fuel the desire to predict the future. We are no different.
+
+With this project we are hoping to build a predictive model which NHL team will win a given 7 game playoff series using the teams' regular season statistics. Using the difference between teams' statistics in we calculate the home team's advantage (or disadvantage) in each category.
+
+Historically, the primary Machine Learning tool used in predicting sports performance has been neural networks (Weissbock el al., 2013), here we are looking to test a variety of other Machine Learning models.The end goal of all these methods being to find which model will provide the highest percentage of correct winners on the testing set.
+
+A typical regular season hockey game consists of three 20-min periods. During the period, each team puts out five players and a goalie onto ice, and they attempt to win the game by putting a puck into the net of the other team. If by the end of the three periods the game is tied, the game goes into a 5 minute "sudden death" over time, after which, if still tied, the game goes into a shootout. In the shootout, each team takes turns by sending out one player to score a penalty shot on the opposing team's goalie. After 3 attempts, the team with most penalty shots scored wins the match and the losing team gets attributed an Overtime Loss (OTL). These overtime rules were instituted part way through our data set in 2006, previously a tie would be assigned if no one scored in the overtime period. If during the game, either team commits a foul, the other team receives a Power Play for a pre-determined amount of time (typically 2 mins), during which the fouling player gets sent off for that amount of time and the other team plays with an extra player on the ice, this situation often results in a goal.
+
+## II. Data
+
+NHL's website has a copious amounts of data going as far back as 1917, but the game has changed dramatically since then, so we had to be discerning about which years to look at for our data. We decided to choose the most recent 20 seasons that played all the 82 mandated games, which makes the earliest season we accounted for to be 1998.
+
+As a side note, we excluded several shortened seasons that took place between 1998 and now. COVID pandemic shortened the 2020-2021 and 2019-2020 season, while player strikes lead to lockouts for the 2012-13 and 2004-05 season.
+
+To create our data set, we used the raw data from NHL's website and created our unique data set. For each year, we isolated all the playoff match ups that year, and created a separate row for each match up, designated by Home/Away team, the rest of the row lists the regular season difference-statistics between Home/Away teams of the given matchup. (See Appendix below for more details). It is this difference in regular season stats that will fuel our predictive models.
+
+The variables of interest attempt to describe team performance in various situations. Many variables track break down the wins, losses and win percentage of teams based on the margin of victory in regular season games. We also have statistics relating to performance by period and the propensity of a team to come from behind or blow leads. Considering the number of goals scored on Power Plays, we have statistics measuring team performance in these situations as well as the frequency they take penalties and draw penalties from the other team.
+
+## III. Method
+
+The main challenge with our approach is our relatively small data subset. With only 20 seasons and 300 playoff series against more than 60 variables, we do not have sufficient rows of data to work with the data set directly. To account for that we elected to use step wise selection and lasso approach to reduce the number of variables. In both cases we are concerned about the degrees of freedom in our model and so we limit variable selection to a maximum of 10 variables given that we will only be training on 200 observations.
+
+We will select variables using a lasso regression and a stepwise selection process. We will then plug the selected variables into probit, ordered probit, and random forests models. Given that some of our statistics are highly correlated, we will also use Principle Component Analysis to summarize the data set and plug this into a probit model.Given the nature of our small data set we attempt to give ourselves less variance in our testing set we hold out (100 observations) from our training data. To attempt to avoid over fitting our models we test potential parameter values on resamples of the training set and select the model that performs best on these training set resamples . We then test the accuracy for each model by calculating the absolute improvement and lift against our null model that Home team (which is equivalent to being a higher seed) always wins.
+
+```{r, echo=FALSE}
+library(gamlr)
+library(tidyverse)
+library(mosaic)
+library(foreach)
+library(modelr)
+library(rsample)
+library(rms)
+library(aod)
+library(ggplot2)
+library(caret)
+library(parallel)
+library(MASS)
+library(psych)
+library(dplyr)
+library(leaps)
+library(lars)
+
+
+set.seed(353)
+
+```
+
+### Step-wise Selection
+
+```{r, echo=FALSE}
+#Stepwise Variables
+X2 <- Final_Data[,-c(2:5)]
+full_model <- lm(data = X2, `W.L` ~ .)
+Stepwise_10 <- regsubsets(`W.L` ~ . , data = X2, nv = 10,
+                     method = "seqrep")
+```
+
+Step-wise selection variables are - face-off win percentage (FOW%), penalty kill percentage (Net.PK), percentage of games won byc 2 goals (win..2goal.game), number of penalties drawng against the other team (Pen.Drawn.60), percentage of games won by more than 3 goals (win..3.goal.game), goals against in second period (GA.in.p2), percentage of games won while leading in period 2 (win..lead.2p), percentage of games won while leading in period 1 (win..lead.1p)
+
+### Lasso selection
+
+```{r, echo=FALSE}
+
+#Lasso Variables
+X<-Final_Data[,-c(1:5)]
+X <- data.matrix(X, rownames.force = NA)
+Lasso_Model = lars(X, Final_Data$`W.L`)
+Lasso_Coef <- coef(Lasso_Model)
+```
+
+Lasso selected variables are total goal differential (total_goal_differential), goals against in period 2 (GA.in.P2), percentage of games after scoring first (W..SF), net power play kill percentage (Net.PK.), percentage of games won while leading in period 2 (win..lead.2p), percentage of games won by more than 3 goals (win..3.goal.game), number of penalties drawn against the other team (Pen.Drawn.60), shots per game differential (shots_differential), regulation wins (RW).
+
+## Using lasso selected variables
+
+### Probit Model
+
+```{r, echo=FALSE}
+set.seed(343)
+probit_split = initial_split(Final_Data, prop = 2/3)
+probit_train = training(probit_split)
+probit_test = testing(probit_split)
+
+
+control = trainControl(method = "boot", number = 100)
+Probit_Lasso_Train = train(as.factor(W.L) ~ Total_goal_differential+GA.in.P2+W..SF+Net.PK. +
+                             Win..Lead.2P+Win..3.Goal.Game+Pen.Drawn.60 +
+                             Shot_Differential+RW, data = probit_train,
+                           method = "glm", family = binomial(link = "probit"),
+                           trControl = control)
+Probit_Lasso_Predict = predict(Probit_Lasso_Train, probit_test)
+
+confusion_out = table(y = probit_test$W.L, yhat = Probit_Lasso_Predict)
+Probit_Lasso_Confusion_Matrix = confusion_out
+Probit_Lasso_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+
+Probit_Lasso_Confusion_Matrix
+Probit_Lasso_Accuracy
+```
+
+### Ordered Probit Model
+
+```{r, echo=FALSE}
+set.seed(343)
+
+playoff.plr <- polr(as.factor(`Win_Margin`) ~ Pen.Drawn.60 + `RW` + Total_goal_differential + `Net.PK.` + Shot_Differential + `GA.in.P2` + `W..SF` + `Win..3.Goal.Game` + `Win..Lead.2P`, method = "probit", data = Final_Data)
+playoff.plr 
+
+summary(update(playoff.plr, method = "probit"))
+
+test = predict(playoff.plr)
+Ordered_Probit_Lasso = table(Final_Data$Win_Margin, test)
+sum(diag(Ordered_Probit_Lasso)) / sum(Ordered_Probit_Lasso)
+
+max(sum(Ordered_Probit_Lasso[1,]),
+    sum(Ordered_Probit_Lasso[2,]),
+    sum(Ordered_Probit_Lasso[3,]),
+    sum(Ordered_Probit_Lasso[4,]),
+    sum(Ordered_Probit_Lasso[5,]),
+    sum(Ordered_Probit_Lasso[6,]),
+    sum(Ordered_Probit_Lasso[7,]),
+    sum(Ordered_Probit_Lasso[8,]))
+
+Ordered_Probit_Lasso
+
+
+Probit_Lasso_Matrix
+Probit_Lasso_Accuracy
+
+```
+
+### Logit Model
+
+```{r, echo=FALSE}
+set.seed(343)
+
+logit_split = initial_split(Final_Data, prop = 2/3)
+logit_train = training(logit_split)
+logit_test = testing(logit_split)
+
+
+control = trainControl(method = "boot", number = 100)
+Logit_Lasso_Train = train(as.factor(W.L) ~ Total_goal_differential+GA.in.P2+W..SF+
+                            Net.PK.+ Win..Lead.2P+Win..3.Goal.Game+Pen.Drawn.60 +
+                             Shot_Differential+RW, data = logit_train,
+                           method = "glm", family = binomial(link = "logit"),
+                           trControl = control)
+Logit_Lasso_Predict = predict(Logit_Lasso_Train, logit_test)
+
+confusion_out = table(y = logit_test$W.L, yhat = Logit_Lasso_Predict)
+confusion_out
+sum(diag(confusion_out))/sum(confusion_out)
+```
+
+### Random Forest
+
+```{r, echo=FALSE}
+forest_split = initial_split(Final_Data, prop = 2/3)
+forest_train = training(forest_split)
+forest_test = testing(forest_split)
+
+
+
+control = trainControl(method = "boot", number = 100)
+Forest_Lasso_Train = train(as.factor(W.L) ~ Total_goal_differential+GA.in.P2+W..SF+Net.PK. +
+                       Win..Lead.2P+Win..3.Goal.Game+Pen.Drawn.60 +
+                       Shot_Differential+RW, data = forest_train, method = "rf",
+                     tuneLength=3, trControl = control)
+Forest_Lasso_Predict = predict(Forest_Lasso_Train, forest_test)
+
+confusion_out = table(y = forest_test$W.L, yhat = Forest_Lasso_Predict)
+confusion_out
+sum(diag(confusion_out))/sum(confusion_out)
+```
+
+## Step-wise Selection
+
+### Probit Model
+
+```{r, echo=FALSE}
+probit_split = initial_split(Final_Data, prop = 2/3)
+probit_train = training(probit_split)
+probit_test = testing(probit_split)
+
+
+control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+Probit_Step_Train = train(as.factor(`W.L`) ~ `FOW.` + `Net.PK.` + `Win..2.Goal.Game` + `Pen.Drawn.60` + `Win..3.Goal.Game` + `GA.in.P2` + `Win..Lead.2P` + `Wins.Lead.1P`, 
+                        data = probit_train,
+                           method = "glm", family = binomial(link = "logit"),
+                           trControl = control)
+Probit_Step_Predict = predict(Probit_Step_Train, probit_test)
+
+confusion_out = table(y = probit_test$W.L, yhat = Probit_Step_Predict)
+confusion_out
+sum(diag(confusion_out))/sum(confusion_out)
+```
+
+### Ordered Probit Model
+
+```{r, echo=FALSE}
+playoff.plr <- polr(as.factor(`Win_Margin`) ~ `RW` + Total_goal_differential + `Net.PK.` + Shot_Differential + `GA.in.P2` + `W..SF` + `Win..3.Goal.Game` + `Win..Lead.2P`, method = "probit", data = Final_Data)
+playoff.plr 
+
+summary(update(playoff.plr, method = "probit"))
+
+test = predict(playoff.plr)
+(err.table = table(Final_Data$Win_Margin, test))
+
+sum(diag(err.table)) / sum(err.table)
+```
+
+### Logit Model
+
+```{r, echo=FALSE}
+
+Logit_split = initial_split(Final_Data, prop = 2/3)
+Logit_train = training(Logit_split)
+Logit_test = testing(Logit_split)
+
+
+control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+Logit_Step_Train = train(as.factor(`W.L`) ~ `FOW.` + `Net.PK.` + `Win..2.Goal.Game` + `Pen.Drawn.60` + `Win..3.Goal.Game` + `GA.in.P2` + `Win..Lead.2P` + `Wins.Lead.1P`, 
+                        data = Logit_train,
+                           method = "glm", family = binomial(link = "logit"),
+                           trControl = control)
+Logit_Step_Predict = predict(Logit_Step_Train, logit_test)
+
+confusion_out = table(y = Logit_test$W.L, yhat = Logit_Step_Predict)
+confusion_out
+sum(diag(confusion_out))/sum(confusion_out)
+```
+
+### Random Forest
+
+```{r, echo=FALSE}
+forest_split = initial_split(Final_Data, prop = 2/3)
+forest_train = training(forest_split)
+forest_test = testing(forest_split)
+
+control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+Forest_Step_Train = train(as.factor(W.L) ~
+                             FOW.+GA.in.P2+W..SF+Net.PK. +
+                             Win..Lead.2P+Win..3.Goal.Game+Pen.Drawn.60 +
+                             Win..2.Goal.Game+Wins.Lead.1P, data = forest_train,
+                           method = "rf",
+                           tuneLength=3, trControl = control)
+Forest_Step_Predict = predict(Forest_Step_Train, forest_test)
+
+confusion_out = table(y = forest_test$W.L, yhat = Forest_Step_Predict)
+confusion_out
+sum(diag(confusion_out))/sum(confusion_out)
+```
+
+## PCA
+
+```{r, echo=FALSE, warning=FALSE}
+
+Final_Data_PCA = Final_Data[, -c(1:5)]
+
+PCA = prcomp(Final_Data_PCA, scale. = TRUE, rank = 10)
+scores = PCA$x
+
+scores = as.data.frame(scores)
+
+scores$W.L <- Final_Data$W.L
+
+PCA_logit <- glm(W.L ~ PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + 1, family = binomial(link = "logit"), data = scores)
+
+PCA_logit_split = initial_split(scores, prop = 2/3)
+PCA_logit_train = training(PCA_logit_split)
+PCA_logit_test = testing(PCA_logit_split)
+
+num_folds = 10
+
+control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+PCA_logit_cv = train(W.L ~ ., data = PCA_logit_train, method = "glm", family = binomial(link = "logit"), trControl = control)
+PCA_logit_cv_predict = predict(PCA_logit_cv, PCA_logit_test)
+
+yhat_test_data = ifelse(PCA_logit_cv_predict > 0.5, 1, 0)
+confusion_out = table(y = PCA_logit_test$W.L, yhat = yhat_test_data)
+confusion_out
+sum(diag(confusion_out))/sum(confusion_out)
+```
+
+## IV. Results
+
+### PCA:
+
+PCA found no significant improvements over the base model that assumes that home team will win its match up.
+
+###Lasso selected variables
+
+Probit Model:
+
+Ordered Probit Model:
+
+Logit Model:
+
+Random Forest:
+
+###Step-wise selected variables
+
+Probit Model:
+
+Ordered Probit Model:
+
+Logit Model:
+
+Random Forest:
+
+## V. Conclusion
