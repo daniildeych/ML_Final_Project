@@ -2,8 +2,9 @@
 title: "Data Mining and Machine Learning Final Project"
 author: "Daniil Deych, Alex Mykietyn, Cameron Wheatley"
 date: "`r Sys.Date()`"
-output: pdf_document:
-          keep_md: TRUE
+output: 
+  pdf_document:
+    keep_md: TRUE
 ---
 
 # What team-relative regular season statistics can tell us about NHL playoff team performance?
@@ -34,7 +35,7 @@ The main challenge with our approach is our relatively small data subset. With o
 
 We will select variables using a lasso regression and a stepwise selection process. We will then plug the selected variables into probit, ordered probit, and random forests models. Given that some of our statistics are highly correlated, we will also use Principle Component Analysis to summarize the data set and plug this into a probit model.Given the nature of our small data set we attempt to give ourselves less variance in our testing set we hold out (100 observations) from our training data. To attempt to avoid over fitting our models we test potential parameter values on resamples of the training set and select the model that performs best on these training set resamples . We then test the accuracy for each model by calculating the absolute improvement and lift against our null model that Home team (which is equivalent to being a higher seed) always wins.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
 library(gamlr)
 library(tidyverse)
 library(mosaic)
@@ -52,6 +53,7 @@ library(dplyr)
 library(leaps)
 library(lars)
 
+Final_Data <- read.csv("~/Library/CloudStorage/Dropbox/UT/2022_Spring/ECO 395M_DATA MINING/GitHub/ML_Final_Project/Data/Final_Data.csv")
 
 set.seed(353)
 
@@ -59,7 +61,7 @@ set.seed(353)
 
 ### Step-wise Selection
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
 #Stepwise Variables
 X2 <- Final_Data[,-c(2:5)]
 full_model <- lm(data = X2, `W.L` ~ .)
@@ -71,7 +73,7 @@ Step-wise selection variables are - face-off win percentage (FOW%), penalty kill
 
 ### Lasso selection
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
 
 #Lasso Variables
 X<-Final_Data[,-c(1:5)]
@@ -86,8 +88,8 @@ Lasso selected variables are total goal differential (total_goal_differential), 
 
 ### Probit Model
 
-```{r, echo=FALSE}
-set.seed(343)
+```{r, echo=FALSE, warning=FALSE}
+set.seed(345)
 probit_split = initial_split(Final_Data, prop = 2/3)
 probit_train = training(probit_split)
 probit_test = testing(probit_split)
@@ -103,47 +105,53 @@ Probit_Lasso_Predict = predict(Probit_Lasso_Train, probit_test)
 
 confusion_out = table(y = probit_test$W.L, yhat = Probit_Lasso_Predict)
 Probit_Lasso_Confusion_Matrix = confusion_out
-Probit_Lasso_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+Probit_Lasso_Model_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+Probit_Lasso_Null_Accuracy = sum(Probit_Lasso_Confusion_Matrix[2,])/sum(confusion_out)
 
 Probit_Lasso_Confusion_Matrix
-Probit_Lasso_Accuracy
+print("Probit Model Accuracy")
+Probit_Lasso_Model_Accuracy
+print("Null Model Accuracy")
+Probit_Lasso_Null_Accuracy
 ```
 
 ### Ordered Probit Model
 
-```{r, echo=FALSE}
-set.seed(343)
+```{r, echo=FALSE, warning=FALSE}
 
-playoff.plr <- polr(as.factor(`Win_Margin`) ~ Pen.Drawn.60 + `RW` + Total_goal_differential + `Net.PK.` + Shot_Differential + `GA.in.P2` + `W..SF` + `Win..3.Goal.Game` + `Win..Lead.2P`, method = "probit", data = Final_Data)
-playoff.plr 
-
-summary(update(playoff.plr, method = "probit"))
-
-test = predict(playoff.plr)
-Ordered_Probit_Lasso = table(Final_Data$Win_Margin, test)
-sum(diag(Ordered_Probit_Lasso)) / sum(Ordered_Probit_Lasso)
-
-max(sum(Ordered_Probit_Lasso[1,]),
-    sum(Ordered_Probit_Lasso[2,]),
-    sum(Ordered_Probit_Lasso[3,]),
-    sum(Ordered_Probit_Lasso[4,]),
-    sum(Ordered_Probit_Lasso[5,]),
-    sum(Ordered_Probit_Lasso[6,]),
-    sum(Ordered_Probit_Lasso[7,]),
-    sum(Ordered_Probit_Lasso[8,]))
-
-Ordered_Probit_Lasso
+set.seed(345)
+ordered_probit_split = initial_split(Final_Data, prop = 2/3)
+ordered_probit_train = training(ordered_probit_split)
+ordered_probit_test = testing(ordered_probit_split)
 
 
-Probit_Lasso_Matrix
-Probit_Lasso_Accuracy
+playoff.plr <- polr(as.factor(`Win_Margin`) ~ Pen.Drawn.60 + `RW` + Total_goal_differential + `Net.PK.` + Shot_Differential + `GA.in.P2` + `W..SF` + `Win..3.Goal.Game` + `Win..Lead.2P`, method = "probit", data = ordered_probit_train)
+
+
+
+Ordered_Probit_Lasso_Pred = predict(playoff.plr, ordered_probit_test)
+
+Ordered_Probit_Lasso_Confusion_Matrix = table(ordered_probit_test$Win_Margin,
+                                              Ordered_Probit_Lasso_Pred)
+
+
+Ordered_Probit_Lasso_Model_Accuracy = sum(diag(Ordered_Probit_Lasso_Confusion_Matrix))/sum(Ordered_Probit_Lasso_Confusion_Matrix)
+
+Ordered_Probit_Lasso_Null_Accuracy = sum(Ordered_Probit_Lasso_Confusion_Matrix[6,]) /sum(Ordered_Probit_Lasso_Confusion_Matrix)
+
+
+Ordered_Probit_Lasso_Confusion_Matrix
+print("Ordered Probit Model Accuracy")
+Ordered_Probit_Lasso_Model_Accuracy
+print("Null Model Accuracy")
+Ordered_Probit_Lasso_Null_Accuracy
 
 ```
 
 ### Logit Model
 
-```{r, echo=FALSE}
-set.seed(343)
+```{r, echo=FALSE, warning=FALSE}
+set.seed(345)
 
 logit_split = initial_split(Final_Data, prop = 2/3)
 logit_train = training(logit_split)
@@ -159,13 +167,21 @@ Logit_Lasso_Train = train(as.factor(W.L) ~ Total_goal_differential+GA.in.P2+W..S
 Logit_Lasso_Predict = predict(Logit_Lasso_Train, logit_test)
 
 confusion_out = table(y = logit_test$W.L, yhat = Logit_Lasso_Predict)
-confusion_out
-sum(diag(confusion_out))/sum(confusion_out)
+Logit_Lasso_Confusion_Matrix = confusion_out
+Logit_Lasso_Model_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+Logit_Lasso_Null_Accuracy = sum(confusion_out[2,])/sum(confusion_out)
+
+Logit_Lasso_Confusion_Matrix
+print("LogitModel Accuracy")
+Logit_Lasso_Model_Accuracy
+print("Null Model Accuracy")
+Logit_Lasso_Null_Accuracy
 ```
 
 ### Random Forest
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
+set.seed(345)
 forest_split = initial_split(Final_Data, prop = 2/3)
 forest_train = training(forest_split)
 forest_test = testing(forest_split)
@@ -181,20 +197,30 @@ Forest_Lasso_Predict = predict(Forest_Lasso_Train, forest_test)
 
 confusion_out = table(y = forest_test$W.L, yhat = Forest_Lasso_Predict)
 confusion_out
-sum(diag(confusion_out))/sum(confusion_out)
+
+Forest_Lasso_Confusion_Matrix = confusion_out
+Forest_Lasso_Model_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+Forest_Lasso_Null_Accuracy = sum(confusion_out[2,])/sum(confusion_out)
+
+Forest_Lasso_Confusion_Matrix
+print("Forest Model Accuracy")
+Forest_Lasso_Model_Accuracy
+print("Null Model Accuracy")
+Forest_Lasso_Null_Accuracy
 ```
 
 ## Step-wise Selection
 
 ### Probit Model
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
+set.seed(345)
 probit_split = initial_split(Final_Data, prop = 2/3)
 probit_train = training(probit_split)
 probit_test = testing(probit_split)
 
 
-control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+control = trainControl(method = "boot", number = 100)
 Probit_Step_Train = train(as.factor(`W.L`) ~ `FOW.` + `Net.PK.` + `Win..2.Goal.Game` + `Pen.Drawn.60` + `Win..3.Goal.Game` + `GA.in.P2` + `Win..Lead.2P` + `Wins.Lead.1P`, 
                         data = probit_train,
                            method = "glm", family = binomial(link = "logit"),
@@ -202,34 +228,56 @@ Probit_Step_Train = train(as.factor(`W.L`) ~ `FOW.` + `Net.PK.` + `Win..2.Goal.G
 Probit_Step_Predict = predict(Probit_Step_Train, probit_test)
 
 confusion_out = table(y = probit_test$W.L, yhat = Probit_Step_Predict)
-confusion_out
-sum(diag(confusion_out))/sum(confusion_out)
+
+Probit_Step_Confusion_Matrix = confusion_out
+Probit_Step_Model_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+Probit_Step_Null_Accuracy = sum(Probit_Lasso_Confusion_Matrix[2,])/sum(confusion_out)
+
+Probit_Step_Confusion_Matrix
+print("Probit Model Accuracy")
+Probit_Step_Model_Accuracy
+print("Null Model Accuracy")
+Probit_Step_Null_Accuracy
 ```
 
 ### Ordered Probit Model
 
-```{r, echo=FALSE}
-playoff.plr <- polr(as.factor(`Win_Margin`) ~ `RW` + Total_goal_differential + `Net.PK.` + Shot_Differential + `GA.in.P2` + `W..SF` + `Win..3.Goal.Game` + `Win..Lead.2P`, method = "probit", data = Final_Data)
-playoff.plr 
+```{r, echo=FALSE, warning=FALSE}
+set.seed(345)
+ordered_probit_split = initial_split(Final_Data, prop = 2/3)
+ordered_probit_train = training(ordered_probit_split)
+ordered_probit_test = testing(ordered_probit_split)
 
-summary(update(playoff.plr, method = "probit"))
 
-test = predict(playoff.plr)
-(err.table = table(Final_Data$Win_Margin, test))
+playoff.plr2 <- polr(as.factor(`Win_Margin`) ~ `FOW.` + `Net.PK.` + `Win..2.Goal.Game` + `Pen.Drawn.60` + `Win..3.Goal.Game` + `GA.in.P2` + `Win..Lead.2P` + `Wins.Lead.1P`, method = "probit", data = ordered_probit_train)
 
-sum(diag(err.table)) / sum(err.table)
+
+Ordered_Probit_Step_Pred = predict(playoff.plr2, ordered_probit_test)
+
+Ordered_Probit_Step_Confusion_Matrix = table(ordered_probit_test$Win_Margin,
+                                             Ordered_Probit_Step_Pred)
+
+
+Ordered_Probit_Step_Model_Accuracy = sum(diag(Ordered_Probit_Step_Confusion_Matrix))/sum(Ordered_Probit_Step_Confusion_Matrix)
+Ordered_Probit_Step_Null_Accuracy = sum(Ordered_Probit_Step_Confusion_Matrix[6,]) /sum(Ordered_Probit_Step_Confusion_Matrix)
+
+Ordered_Probit_Step_Confusion_Matrix
+print("Ordered Probit Model Accuracy")
+Ordered_Probit_Step_Model_Accuracy
+print("Null Model Accuracy")
+Ordered_Probit_Step_Null_Accuracy
 ```
 
 ### Logit Model
 
-```{r, echo=FALSE}
-
+```{r, echo=FALSE, warning=FALSE}
+set.seed(345)
 Logit_split = initial_split(Final_Data, prop = 2/3)
 Logit_train = training(Logit_split)
 Logit_test = testing(Logit_split)
 
 
-control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+control = trainControl(method = "boot", number = 100)
 Logit_Step_Train = train(as.factor(`W.L`) ~ `FOW.` + `Net.PK.` + `Win..2.Goal.Game` + `Pen.Drawn.60` + `Win..3.Goal.Game` + `GA.in.P2` + `Win..Lead.2P` + `Wins.Lead.1P`, 
                         data = Logit_train,
                            method = "glm", family = binomial(link = "logit"),
@@ -237,18 +285,27 @@ Logit_Step_Train = train(as.factor(`W.L`) ~ `FOW.` + `Net.PK.` + `Win..2.Goal.Ga
 Logit_Step_Predict = predict(Logit_Step_Train, logit_test)
 
 confusion_out = table(y = Logit_test$W.L, yhat = Logit_Step_Predict)
-confusion_out
-sum(diag(confusion_out))/sum(confusion_out)
+
+Logit_Step_Confusion_Matrix = confusion_out
+Logit_Step_Model_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+Logit_Step_Null_Accuracy = sum(confusion_out[2,])/sum(confusion_out)
+
+Logit_Step_Confusion_Matrix
+print("Logit Model Accuracy")
+Logit_Step_Model_Accuracy
+print("Null Model Accuracy")
+Logit_Step_Null_Accuracy
 ```
 
 ### Random Forest
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
+set.seed(345)
 forest_split = initial_split(Final_Data, prop = 2/3)
 forest_train = training(forest_split)
 forest_test = testing(forest_split)
 
-control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+control = trainControl(method = "boot", number = 100)
 Forest_Step_Train = train(as.factor(W.L) ~
                              FOW.+GA.in.P2+W..SF+Net.PK. +
                              Win..Lead.2P+Win..3.Goal.Game+Pen.Drawn.60 +
@@ -258,14 +315,23 @@ Forest_Step_Train = train(as.factor(W.L) ~
 Forest_Step_Predict = predict(Forest_Step_Train, forest_test)
 
 confusion_out = table(y = forest_test$W.L, yhat = Forest_Step_Predict)
-confusion_out
-sum(diag(confusion_out))/sum(confusion_out)
+
+Forest_Step_Confusion_Matrix = confusion_out
+Forest_Step_Model_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+Forest_Step_Null_Accuracy = sum(confusion_out[2,])/sum(confusion_out)
+
+Forest_Step_Confusion_Matrix
+print("Forest Model Accuracy")
+Forest_Step_Model_Accuracy
+print("Null Model Accuracy")
+Forest_Step_Null_Accuracy
 ```
 
 ## PCA
 
 ```{r, echo=FALSE, warning=FALSE}
 
+set.seed(345)
 Final_Data_PCA = Final_Data[, -c(1:5)]
 
 PCA = prcomp(Final_Data_PCA, scale. = TRUE, rank = 10)
@@ -277,46 +343,66 @@ scores$W.L <- Final_Data$W.L
 
 PCA_logit <- glm(W.L ~ PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + 1, family = binomial(link = "logit"), data = scores)
 
+set.seed(345)
 PCA_logit_split = initial_split(scores, prop = 2/3)
 PCA_logit_train = training(PCA_logit_split)
 PCA_logit_test = testing(PCA_logit_split)
 
-num_folds = 10
 
-control = trainControl(method = "repeatedcv", number = num_folds, repeats = 100)
+control = trainControl(method = "boot", number = 100)
 PCA_logit_cv = train(W.L ~ ., data = PCA_logit_train, method = "glm", family = binomial(link = "logit"), trControl = control)
 PCA_logit_cv_predict = predict(PCA_logit_cv, PCA_logit_test)
 
 yhat_test_data = ifelse(PCA_logit_cv_predict > 0.5, 1, 0)
 confusion_out = table(y = PCA_logit_test$W.L, yhat = yhat_test_data)
-confusion_out
-sum(diag(confusion_out))/sum(confusion_out)
+
+PCA_Confusion_Matrix = confusion_out
+PCA_Model_Accuracy = sum(diag(confusion_out))/sum(confusion_out)
+PCA_Null_Accuracy = sum(confusion_out[2,])/sum(confusion_out)
+
+PCA_Confusion_Matrix
+print("PCA Model Accuracy")
+PCA_Model_Accuracy
+print("Null Model Accuracy")
+PCA_Null_Accuracy
 ```
 
 ## IV. Results
 
 ### PCA:
 
-PCA found no significant improvements over the base model that assumes that home team will win its match up.
+PCA Absolute Improvement = 3%, Lift = 1.05
 
 ###Lasso selected variables
 
-Probit Model:
+Probit Model: Absolute Improvement = 2%, Lift = 1.03
 
-Ordered Probit Model:
+Ordered Probit Model: Absolute Improvement = -3%, Lift = 0.87
 
-Logit Model:
+Logit Model: Absolute Improvement = 6%, Lift = 1.09
 
-Random Forest:
+Random Forest: Absolute Improvement = 3%, Lift = 1.05
 
 ###Step-wise selected variables
 
-Probit Model:
+Probit Model: Absolute Improvement = 6%, Lift = 1.10
 
-Ordered Probit Model:
+Ordered Probit Model: Absolute Improvement = -3%, Lift = 0.87
 
-Logit Model:
+Logit Model: Absolute Improvement = 6%, Lift = 1.10
 
-Random Forest:
+Random Forest: Absolute Improvement = 5%, Lift = 1.08
 
 ## V. Conclusion
+
+In the end none of our models showed consistent improvement over the base model that predicts the higher seed (Home team) to be the winner of the match up. Upon discussion we came up with several potential reasons for that.
+
+Firstly, our data set is not expansive enough. With 60 variables and only 300 observation that is not rigorous enough to run good train/test splits, as especially with a smaller test set the variance in the data is bound to be captured in the model. We attempted to account for that using as k-fold cross validation, but that technique did not show much improvement either.
+
+Another possible explanation is that our data set did not include some of the potential confounding variables. Since NHL data set that we used simply calculates the season average statistics, and the team performance is more relevant to how the team ends the season, our data does not account for that kind of heterogeneity.
+
+A very common practice for teams that are playoff bound is to improve their roster by bringing on high quality players later in the season, whose performance is not likely to show up on the team's season long statistics. To account for that a good statistic to add would have been a share of the salary cap that is being used by the team, as the team goes into the playoffs. The assumption there being that teams with no salary space under the cap are likely to have the better players than the ones that do.
+
+The next confounder that we could not account for is the health of the team. If an important player on the team was out for most of the season due to a serious injury that would dramatically reduce their regular season stats, which our models would predict to reflect in their playoff runs. The reverse of that scenario would be true as well, an effect of high impact player that going down right before the beginning of the playoffs would not show up in any of our models.
+
+To summarize, step-wise selection provided better performing variables across all of our models. The best model within that category ended up being probit or logit models that showed improvements of up to 6% above the base model.
